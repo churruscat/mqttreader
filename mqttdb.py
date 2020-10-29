@@ -8,7 +8,7 @@ import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
 import  json
 from datetime import datetime
-from time import time, sleep, altzone
+from time import time, altzone ,sleep
 import os, socket, sys, logging
 
 dbport=8086
@@ -70,7 +70,7 @@ def on_connect(mqttCliente, userdata, flags, rc):
  
 def on_subscribe(mqttCliente, userdata, mid, granted_qos):
 	logging.info("Suscrito OK; mensaje "+str(mid)+"   qos= "+ str(granted_qos))
-	time.sleep(1)
+	sleep(1)
 
 def on_disconnect(mqttCliente, userdata, rc):
 	logging.info("Se ha desconectado, rc= "+str(rc))    
@@ -86,16 +86,30 @@ def reconectate(mqttCliente):
 			logging.info("Me reconecto  " )
 			mqttCliente.reconnect()
 			conectado=True
-			time.sleep(2)
+			sleep(2)
 		except Exception as exErr:
 			if hasattr(exErr, 'message'):
 				logging.warning("Error de conexion1 = "+ exErr.message)
 			else:
 				logging.warning("Error de conexion2 = "+exErr)     
-			time.sleep(30)
+			sleep(30)
+
+def arrancaEscritor(cola, puerto):
+		global clientes
+		clientes["escritor"]["broker"]=cola
+		clientes["escritor"]["cliente"] = mqtt.Client( clean_session=True) 
+		clientes["escritor"]["cliente"].on_message    = on_message
+		clientes["escritor"]["cliente"].on_connect    = on_connect
+		clientes["escritor"]["cliente"].on_publish    = on_publish
+		clientes["escritor"]["cliente"].connect(cola,puerto)
+		#mqttEscritor.username_pw_set(username , password=token)
+		clientes["escritor"]["cliente"].reconnect_delay_set(60, 600) 
+		logging.info("ESCRITOR=")
+		logging.info(clientes["escritor"])
 	
 def on_message(mqttCliente, userdata, message):
 	#result, mid = clientes["escritor"]["cliente"].publish(message.topic, message, 1, True )
+	global clientes
 	try:
 		medida=message.payload["measurement"]
 		crudo=False
@@ -122,11 +136,16 @@ def on_message(mqttCliente, userdata, message):
 	if len(clientes["escritor"]["broker"])>2:
 		logging.info("preparo para enviar a mqtt remoto")
 		#logging.info(measurement, json.dumps(payload))
-		result, mid = clientes["escritor"]["cliente"].publish(message.topic, json.dumps(payload), 1, True )
-		logging.info("sent "+str(result))
-		if result==4:
-			clientes["escritor"]["cliente"].reconnect()
-			logging.warning("no connection with "+clientes["escritor"]["broker"])
+		try:
+			result, mid = clientes["escritor"]["cliente"].publish(message.topic, json.dumps(payload), 1, True )
+			logging.info("sent "+str(result))
+		except Exception as exErr:
+			if hasattr(exErr, 'message'):
+				logging.warning("Connection error type 1 = "+ exErr.message)
+			else:
+				logging.warning("Connection error type 2 = "+exErr)				   
+			sleep(30)
+			arrancaEscritor(clientes["escritor"]["broker"],clientes["escritor"]["port"])
 		#logging.info("sent to remote mqtt, result",result)
 
 if __name__ == '__main__':
@@ -139,14 +158,14 @@ if __name__ == '__main__':
 						help='mqtt Password.')														
 	parser.add_argument('-v', '--verbose', nargs='?',
 		choices=['none','debug', 'info', 'warning', 'error' ,'critical'],  default='warning',
-							help='Verbose level')
+							help='Verbose level. Default: warning')
 
 	parser.add_argument('-s', '--dbuser', nargs='?', default='',
 						help='Influxdb User name.')
 	parser.add_argument('-a', '--dbpassword', nargs='?', default='',
 						help='Influxdb Password.')
 	parser.add_argument('-d', '--dbname', nargs='?', default='iotdb',
-							help='Database name.')                                                         
+							help='Database name. Default: iotdb')                                                         
 
 	args = parser.parse_args()
 	dbpassword=args.dbpassword
@@ -173,24 +192,10 @@ if __name__ == '__main__':
 	logging.info("LECTOR")
 	logging.info(clientes["lector"])
 
-
 	#y ahora el cliente que reenvia los mensajes a una cola remota (si q <>'')
 
 	if (args.queue!=''):
-		clientes["escritor"]["broker"]=args.queue
-		clientes["escritor"]["cliente"] = mqtt.Client( clean_session=True) 
-		clientes["escritor"]["cliente"].on_message    = on_message
-		clientes["escritor"]["cliente"].on_connect    = on_connect
-		#clientes["escritor"]["cliente"].on_subscribe  = on_subscribe
-		clientes["escritor"]["cliente"].on_disconnect = on_disconnect
-		clientes["escritor"]["cliente"].on_publish    = on_publish
-		clientes["escritor"]["cliente"].connect(clientes["escritor"]["broker"],clientes["escritor"]["port"])
-		#mqttEscritor.username_pw_set(username , password=token)
-		clientes["escritor"]["cliente"].reconnect_delay_set(60, 600) 
-		logging.info("ESCRITOR=")
-		logging.info(clientes["escritor"])
-
-
+		arrancaEscritor(args.queue,clientes["escritor"]["port"])
 	clientes["lector"]["cliente"].loop_start()                 #start the loop
 	clientes["escritor"]["cliente"].loop_start()                 #start the loop
 
