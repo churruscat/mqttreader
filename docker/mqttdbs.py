@@ -160,7 +160,7 @@ if __name__ == '__main__':
 		if parser.has_option("mqtt_broker_send","address"):
 			clientes["sender"]["broker"]=parser.get("mqtt_broker_send","address")
 		if parser.has_option("mqtt_broker_send","port"):
-			clientes["sender"]["port"]=parser.get("mqtt_broker_send","port")
+			clientes["sender"]["port"]=int(parser.get("mqtt_broker_send","port"))
 		if parser.has_option("mqtt_broker_send","userid"):
 			clientes["sender"]["userid"]=parser.get("mqtt_broker_send","userid")
 		if parser.has_option("mqtt_broker_send","password"):
@@ -184,7 +184,9 @@ if __name__ == '__main__':
 		if parser.has_option("database","password"):
 			dbpassword=parser.get("database","password")
 	                         
-	logging.info("IP addr: "+dbserver)
+	logging.warning("IP addr: "+dbserver)
+	logging.warning("Reader: "+str(clientes["reader"]))
+	logging.warning("Sender: "+str(clientes["sender"]))
 
 	## Define mqtt reader
 	logging.info(clientes["reader"])
