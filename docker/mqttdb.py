@@ -9,13 +9,12 @@ from influxdb import InfluxDBClient
 import  json, math
 from datetime import datetime
 from time import time, altzone ,sleep
-import os, socket, sys, subprocess, logging
+import os, socket, sys, logging
 
 dbport=8086
-mqttbroker="mosquitto"
 tipoLogging=['none','debug', 'info', 'warning', 'error' ,'critical']
 clientes={
-	"lector":{"clientId":"Cliente-Lector","broker":"","port":1883,"name":"blank","subscribe_topic":"#","publishTopic":"meteo/envia",
+	"lector":{"clientId":"Cliente-Lector","broker":"127.0.0.1","port":1883,"name":"blank","subscribe_topic":"#","publishTopic":"meteo/envia",
 						"updateTopic":"meteo/update","activo":True},
 	"escritor":{"clientId":"Cliente-Escritor","broker":"","port":1883,"name":"blank","subscribe_topic":"","publishTopic":"meteo/envia",
 						"updateTopic":"topic/update","activo":False},
@@ -57,6 +56,18 @@ def db_insert(body):
 		logging.warning("Record stored:    "+str(response)+' ->'+str(punto))
 	except:
 		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
+	'''		
+	i=0
+	while (response==False and i<5):
+		response = client.write_points(punto)
+		logging.warning("retry connection to db. Response: "+str(response))
+		i+=1
+		sleep(30)
+		if i<6:
+		logging.info("Record stored: "+str(response))
+	else:
+	#except:
+	'''	
 
 # Funciones de Callback
 def on_connect(mqttCliente, userdata, flags, rc):
@@ -145,8 +156,6 @@ def on_message(mqttCliente, userdata, message):
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Lee de mqtt y lo salva en database')
-	parser.add_argument('-m', '--mqtt', nargs='?', default='127.0.0.1', 
-						help='mqtt localIP Adress (host IPaddr)')
 	parser.add_argument('-q', '--queue', nargs='?', default='',
 						help='mqtt remote queue.')
 	parser.add_argument('-u', '--user', nargs='?', default='',
@@ -158,7 +167,7 @@ if __name__ == '__main__':
 							help='Verbose level. Default: warning')
 
 	parser.add_argument('-s', '--dbuser', nargs='?', default='',
-						help='Inf2luxdb User name.')
+						help='Influxdb User name.')
 	parser.add_argument('-a', '--dbpassword', nargs='?', default='',
 						help='Influxdb Password.')
 	parser.add_argument('-d', '--dbname', nargs='?', default='iotdb',
@@ -174,8 +183,9 @@ if __name__ == '__main__':
 	logging.info("IP addr: "+hostIPAddr)
 
 	## Defino el cliente mqtt para leer de la cola local 
-	clientes["lector"]["broker"]=args.mqtt
-	logging.info(clientes["lector"])
+	#clientes["lector"]["cliente"].username_pw_set(args.user,args.password)
+	#clientes["lector"]["cliente"] = mqtt.Client(clientes["lector"]["clientId"], clean_session=True) 
+	clientes["lector"]["broker"] = hostIPAddr
 	clientes["lector"]["cliente"] = mqtt.Client(clientes["lector"]["clientId"],clean_session=False) 
 	clientes["lector"]["cliente"].on_message    = on_message
 	clientes["lector"]["cliente"].on_connect    = on_connect
