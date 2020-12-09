@@ -56,18 +56,7 @@ def db_insert(body):
 		logging.warning("Record stored:    "+str(response)+' ->'+str(punto))
 	except:
 		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
-	'''		
-	i=0
-	while (response==False and i<5):
-		response = client.write_points(punto)
-		logging.warning("retry connection to db. Response: "+str(response))
-		i+=1
-		sleep(30)
-		if i<6:
-		logging.info("Record stored: "+str(response))
-	else:
-	#except:
-	'''	
+
 
 # Funciones de Callback
 def on_connect(mqttCliente, userdata, flags, rc):
@@ -116,13 +105,17 @@ def arrancaEscritor(cola, puerto):
 def on_message(mqttCliente, userdata, message):
 	#result, mid = clientes["escritor"]["cliente"].publish(message.topic, message, 1, True )
 	global clientes
-	try:
+	print(message)
+	print(message.payload)
+	crudo=True
+	'''	try:
 		medida=message.payload["measurement"]
 		crudo=False
 	except:
 		logging.info("viene directamente de un sensor")
 		crudo=True
 		pass	
+	'''
 	#If it comes directly fom a sensor,Inadd meassurement and time
 	if crudo:
 		measurement=message.topic.split('/')[0]
@@ -143,7 +136,7 @@ def on_message(mqttCliente, userdata, message):
 		logging.info("preparo para enviar a mqtt remoto")
 		#logging.info(measurement, json.dumps(payload))
 		try:
-			result, mid = clientes["escritor"]["cliente"].publish(message.topic, json.dumps(payload), 1, True )
+			result, mid = clientes["escritor"]["cliente"].publish(message.topic, json.dumps(dato), 1, True )
 			logging.info("sent "+str(result))
 		except Exception as exErr:
 			if hasattr(exErr, 'message'):
@@ -163,7 +156,7 @@ if __name__ == '__main__':
 	parser.add_argument('-p', '--password', nargs='?', default='',
 						help='mqtt Password.')														
 	parser.add_argument('-v', '--verbose', nargs='?',
-		choices=['none','debug', 'info', 'warning', 'error' ,'critical'],  default='warning',
+		choices=['none','debug', 'info', 'warning', 'error' ,'critical'],  default='info',
 							help='Verbose level. Default: warning')
 
 	parser.add_argument('-s', '--dbuser', nargs='?', default='',

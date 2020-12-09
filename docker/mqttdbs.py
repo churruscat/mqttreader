@@ -27,7 +27,7 @@ clientes={
 	          "subscribe_topic":"#","activo":True},
 	"sender":{"clientId":"c_sender","broker":"","port":1883,"name":"blank",
               "userid":"","password":"",
-	          "publish_topic":"meteo/envia",
+	          "publish_topic":"cooked",
 			  "activo":False},
 }
 
@@ -103,34 +103,37 @@ def arrancaEscritor(cola, puerto):
 	
 def on_message(mqttCliente, userdata, message):
 	global clientes
-	try:
-		medida=message.payload["measurement"]
+	logging.info("Topic :"+  str(message.topic))
+	if (message.topic==clientes["sender"]["publish_topic"]):
 		crudo=False
-	except:
-		logging.info("viene directamente de un sensor")
-		crudo=True
-		pass	
+		logging.info("Comes from a proxy")			
+	else:
+		crudo=True	
+		logging.info("Comes directly from a sensor")
 	#If it comes directly fom a sensor,Inadd meassurement and time
 	if crudo:
 		measurement=message.topic.split('/')[0]
+		logging.info("crudo: "+measurement)
 		secs,usecs=divmod(time(),1)
+		if (usecs==0):
+			usecs=1e-9
 		while (usecs<0.1):
-			logging.info(str(usecs))
 			usecs=usecs*10
 		payload=json.loads(message.payload.decode())
-		dato='{"measurement":"'+measurement+'","time":'+str(int(secs))+str(int(usecs*1000000000))+\
+		dato='{"measurement":"'+measurement+'","time":'+str(int(secs))+str(int(usecs*1e9))+\
 				',"fields":'+json.dumps(payload[0])+',"tags":'+json.dumps(payload[1])+'}'
 	else :
-		dato=message.payload[0]
-		
+		logging.info(message.payload)
+		dato=json.loads(message.payload)
+		#logging.info("cooked: "+str(dato))
 	logging.info(dato)
 	logging.info("salva en influxdb")
 	db_insert(dato)
 	if len(clientes["sender"]["broker"])>2:
-		logging.info("preparo para enviar a mqtt remoto")
+		logging.info("prepare pto send to a remote qmtt broker")
 		#logging.info(measurement, json.dumps(payload))
 		try:
-			result, mid = clientes["sender"]["cliente"].publish(message.topic, json.dumps(payload), 1, True )
+			result, mid = clientes["sender"]["cliente"].publish(clientes["sender"]["publish_topic"], json.dumps(dato), 1, True )
 			logging.info("sent "+str(result))
 		except Exception as exErr:
 			if hasattr(exErr, 'message'):
