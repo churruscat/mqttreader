@@ -23,7 +23,7 @@ mqttbroker="mosquitto"
 tipoLogging=['none','debug', 'info', 'warning', 'error' ,'critical']
 clientes={
 	"reader":{"clientId":"c_reader","broker":"127.0.0.1","port":1883,"name":"blank",
-              "cliente":"c_reader_mqttdbs","userid":"","password":"",
+              "cliente":"","userid":"","password":"",
 	          "subscribe_topic":"#","publish_topic":"cooked", "activo":True},
 	#I will use reader2 to resend messages when there are problems storing records          
 	"reader2":{"clientId":"c_reader2","broker":"127.0.0.1","port":1883,"name":"blank",
@@ -46,7 +46,6 @@ def db_insert(body):
 		sleep(60)
 		return False
 	body1=json.loads(body)
-	punto=json.loads('['+json.dumps(body1)+']')
 	try:
 		for clave in body1['fields'].copy():
 			if (math.isnan(float( body1['fields'][clave]))):
@@ -62,7 +61,7 @@ def db_insert(body):
 		return True
 	except:
 		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
-		#sleep(60)
+		sleep(60)
 		return False
 
 # Funciones de Callback
@@ -98,17 +97,15 @@ def reconectate(mqttCliente):
 #Initializes an mqtt Client
 def arrancaCliente(senderStruct, cleanSess):
 		#global clientes
-		if (cleanSess==False):
-		    senderStruct["cliente"] = mqtt.Client(senderStruct["clientId"],clean_session=cleanSess)
-		else:
-			senderStruct["cliente"] = mqtt.Client(clean_session=cleanSess)      
+		senderStruct["cliente"] = mqtt.Client( clean_session=cleanSess) 
 		senderStruct["cliente"].on_message  = on_message
-		senderStruct["cliente"].on_connect = on_connect
-		senderStruct["cliente"].on_publish      = on_publish
+		senderStruct[["cliente"].on_connect = on_connect
+		clientes["cliente"].on_publish      = on_publish
 		if (senderStruct["userid"]!=''):
 			senderStruct["cliente"].username_pw_set(senderStruct["userid"] , password=senderStruct["password"])
-		senderStruct["cliente"].connect(senderStruct["broker"],senderStruct["port"])
+		senderStruct["cliente"].connect(senderStruct["cola"],senderStruct["puerto"])
 		senderStruct["cliente"].reconnect_delay_set(60, 600) 
+		logging.info(senderStruct["clientId"])
 		logging.info(senderStruct)
 	
 def on_message(mqttCliente, userdata, message):
@@ -135,23 +132,23 @@ def on_message(mqttCliente, userdata, message):
 	else :
 		logging.info(message.payload)
 		dato=json.loads(message.payload)
+		#logging.info("cooked: "+str(dato))
 	logging.info(dato)
 	logging.info("salva en influxdb")
-	if(db_insert(dato)==False):   #if I can't store record, I resend it "cooked" to mqtt queue
-		logging.info("Record not stored will re-queue it")
+	if(!db_insert(dato)):   #if I can't store record, I resend it "cooked" to mqtt queue
 		try:
 			result, mid = clientes["reader2"]["cliente"].publish(clientes["reader2"]["publish_topic"], json.dumps(dato), 1, True )
 			logging.info("sent by reader2 "+str(result))
-			sleep(30)			
 		except:
 			logging.warning("Connection error to reader2 = "+exErr)				   
 			sleep(60)
 			arrancaCliente(clientes["reader2"],True)		
 	if len(clientes["sender"]["broker"])>2:
 		logging.info("prepare pto send to a remote qmtt broker")
+		#logging.info(measurement, json.dumps(payload))
 		try:
 			result, mid = clientes["sender"]["cliente"].publish(clientes["sender"]["publish_topic"], json.dumps(dato), 1, True )
-			logging.info("sent rc="+str(result))
+			logging.info("sent "+str(result))
 		except Exception as exErr:
 			if hasattr(exErr, 'message'):
 				logging.warning("Connection error type 1 = "+ exErr.message)
@@ -163,7 +160,6 @@ def on_message(mqttCliente, userdata, message):
 
 if __name__ == '__main__':
 	parser = ConfigParser()
-	#parser.read('/etc/mqttdbs/mqttdbs.conf')
 	parser.read('/etc/mqttdbs/mqttdbs.conf')
 	if parser.has_section("mqtt_broker_read"):
 		if parser.has_option("mqtt_broker_read","address"):
@@ -216,6 +212,7 @@ if __name__ == '__main__':
 
 	## Define mqtt reader
 	logging.info(clientes["reader"])
+	print(clientes["reader"])
 	arrancaCliente(clientes["reader"],False)
 	clientes["reader"]["cliente"].subscribe(clientes["reader"]["subscribe_topic"],qos=1)
 	logging.info("READER")
