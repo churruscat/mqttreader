@@ -1,0 +1,5 @@
+argparse
+paho-mqtt
+influxdb 
+datetime
+configparser
