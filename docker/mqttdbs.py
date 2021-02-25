@@ -224,9 +224,9 @@ if __name__ == '__main__':
 			dbuser=parser.get("database","userid")
 		if parser.has_option("database","password"):
 			dbpassword=parser.get("database","password")                        
-	logging.warning("IP addr: "+dbserver)
-	logging.warning("Reader: "+str(clientes["reader"]))
-	logging.warning("Sender: "+str(clientes["sender"]))
+	logging.info("IP addr: "+dbserver)
+	logging.info("Reader: "+str(clientes["reader"]))
+	logging.info("Sender: "+str(clientes["sender"]))
 
 	## Define mqtt reader
 	logging.info(clientes["reader"])
