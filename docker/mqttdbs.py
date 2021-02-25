@@ -5,15 +5,15 @@
 #        and, optional, resend the message to another mqtt broker
 #read from mqttdbs.conf, which format is:
 
-import argparse
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
+import influxdb.exceptions
 import  json, math
 from datetime import datetime
 from time import time, altzone ,sleep
 import os, socket, sys, subprocess, logging
-from configparser import ConfigParser
-
+#from configparser import ConfigParser
+import configparser
 dbport=8086
 dbserver="influxdb"
 dbname="iotdb"
@@ -60,10 +60,17 @@ def db_insert(body):
 		response=client.write_points(punto)
 		logging.warning("Record stored:    "+str(response)+' ->'+str(punto))
 		return True
-	except:
+	except influxdb.exceptions.InfluxDBClientError as err:
 		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
+		logging.warning(" Client Error: "+ str(err))
 		#sleep(60)
-		return False
+		return True
+	except influxdb.exceptions.InfluxDBServerError as err:
+		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
+		logging.warning("Server Error: "+ str(err))
+		#sleep(60)
+		return False	
+
 
 # Funciones de Callback
 def on_connect(mqttCliente, userdata, flags, rc):
@@ -166,8 +173,7 @@ def on_message(mqttCliente, userdata, message):
 	return
 
 if __name__ == '__main__':
-	parser = ConfigParser()
-	#parser.read('/etc/mqttdbs/mqttdbs.conf')
+	parser = configparser.ConfigParser()
 	parser.read('/etc/mqttdbs/mqttdbs.conf')
 	if parser.has_section("mqtt_broker_read"):
 		if parser.has_option("mqtt_broker_read","address"):
@@ -203,6 +209,10 @@ if __name__ == '__main__':
 			loglevel=parser.get("log_level","log_level")
 		else:
 			loglevel='warning'
+	else: 
+		loglevel='warning'
+
+
 	logging.basicConfig(stream=sys.stderr, format = '%(asctime)-15s  %(message)s', level=loglevel.upper())	
 	
 	if parser.has_section("database"):
