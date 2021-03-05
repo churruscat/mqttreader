@@ -1,4 +1,0 @@
-paho-mqtt
-influxdb 
-datetime
-configparser

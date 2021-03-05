@@ -1,19 +1,21 @@
 #!/usr/bin/env python
-#  
+#chuRRuscat 2021 v 1.2
 # read an mqtt broker, 
 #        Save into an influxdb database
 #        and, optional, resend the message to another mqtt broker
-#read from mqttdbs.conf, which format is:
+#read from mqttdbs.conf, :
 
-import argparse
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
+import influxdb.exceptions
 import  json, math
 from datetime import datetime
 from time import time, altzone ,sleep
 import os, socket, sys, subprocess, logging
-from configparser import ConfigParser
+#from configparser import ConfigParser
+import configparser
 
+configFile='/etc/mqttdbs/mqttdbs.conf'  # linux or docker
 dbport=8086
 dbserver="influxdb"
 dbname="iotdb"
@@ -59,16 +61,27 @@ def db_insert(body):
 	try:
 		response=client.write_points(punto)
 		logging.warning("Record stored:    "+str(response)+' ->'+str(punto))
+		client.close()
 		return True
-	except:
+	except influxdb.exceptions.InfluxDBClientError as err:
 		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
-		#sleep(60)
-		return False
+		logging.warning(" Client Error: "+ str(err))
+		client.close()
+		return True  #if here care issues onclient side, I discard the record
+	except influxdb.exceptions.InfluxDBServerError as err:
+		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
+		logging.warning("Server Error: "+ str(err))
+		sleep(60)
+		return False	# a valid record could not be stored, I'll retry
+	except :
+		logging.warning("record discarded :"+str(response)+' ->'+str(punto))
+		logging.warning("Database not available: ")
+		sleep(60)
+		return False		
 
 # Funciones de Callback
 def on_connect(mqttCliente, userdata, flags, rc):
 	logging.info("Connected to broker")
-
  
 def on_subscribe(mqttCliente, userdata, mid, granted_qos):
 	logging.info("Subscribed OK; message "+str(mid)+"   qos= "+ str(granted_qos))
@@ -102,9 +115,9 @@ def arrancaCliente(senderStruct, cleanSess):
 		    senderStruct["cliente"] = mqtt.Client(senderStruct["clientId"],clean_session=cleanSess)
 		else:
 			senderStruct["cliente"] = mqtt.Client(clean_session=cleanSess)      
-		senderStruct["cliente"].on_message  = on_message
+		senderStruct["cliente"].on_message = on_message
 		senderStruct["cliente"].on_connect = on_connect
-		senderStruct["cliente"].on_publish      = on_publish
+		senderStruct["cliente"].on_publish = on_publish
 		if (senderStruct["userid"]!=''):
 			senderStruct["cliente"].username_pw_set(senderStruct["userid"] , password=senderStruct["password"])
 		senderStruct["cliente"].connect(senderStruct["broker"],senderStruct["port"])
@@ -120,7 +133,7 @@ def on_message(mqttCliente, userdata, message):
 	else:
 		crudo=True	
 		logging.info("Comes directly from a sensor")
-	#If it comes directly fom a sensor,Inadd meassurement and time
+	#If it comes directly fom a sensor, add meassurement and time
 	if crudo:
 		measurement=message.topic.split('/')[0]
 		logging.info("crudo: "+measurement)
@@ -145,13 +158,12 @@ def on_message(mqttCliente, userdata, message):
 		try:
 			result, mid = clientes["reader2"]["cliente"].publish(clientes["reader2"]["publish_topic"], json.dumps(dato), 1, True )
 			logging.info("sent by reader2 "+str(result))
-			sleep(30)			
 		except:
 			logging.warning("Connection error to reader2 = "+exErr)				   
 			sleep(60)
 			arrancaCliente(clientes["reader2"],True)		
 	if len(clientes["sender"]["broker"])>2:
-		logging.info("prepare pto send to a remote qmtt broker")
+		logging.info("prepare to send to a remote qmtt broker")
 		try:
 			result, mid = clientes["sender"]["cliente"].publish(clientes["sender"]["publish_topic"], json.dumps(dato), 1, True )
 			logging.info("sent rc="+str(result))
@@ -166,9 +178,8 @@ def on_message(mqttCliente, userdata, message):
 	return
 
 if __name__ == '__main__':
-	parser = ConfigParser()
-	#parser.read('/etc/mqttdbs/mqttdbs.conf')
-	parser.read('/etc/mqttdbs/mqttdbs.conf')
+	parser = configparser.ConfigParser()
+	parser.read(configFile)
 	if parser.has_section("mqtt_broker_read"):
 		if parser.has_option("mqtt_broker_read","address"):
 			clientes["reader"]["broker"]=parser.get("mqtt_broker_read","address")
@@ -203,6 +214,10 @@ if __name__ == '__main__':
 			loglevel=parser.get("log_level","log_level")
 		else:
 			loglevel='warning'
+	else: 
+		loglevel='warning'
+
+
 	logging.basicConfig(stream=sys.stderr, format = '%(asctime)-15s  %(message)s', level=loglevel.upper())	
 	
 	if parser.has_section("database"):
@@ -214,9 +229,9 @@ if __name__ == '__main__':
 			dbuser=parser.get("database","userid")
 		if parser.has_option("database","password"):
 			dbpassword=parser.get("database","password")                        
-	logging.warning("IP addr: "+dbserver)
-	logging.warning("Reader: "+str(clientes["reader"]))
-	logging.warning("Sender: "+str(clientes["sender"]))
+	logging.info("IP addr: "+dbserver)
+	logging.info("Reader: "+str(clientes["reader"]))
+	logging.info("Sender: "+str(clientes["sender"]))
 
 	## Define mqtt reader
 	logging.info(clientes["reader"])
@@ -230,7 +245,6 @@ if __name__ == '__main__':
 
 	#and, if configured, client gateway that will resend messages to remote queue
 	clientes["reader"]["cliente"].loop_start()                 #start the loop
-	#clientes["reader2"]["cliente"].loop_start()                #start the loop for failed updates
 	if (clientes["sender"]["broker"]!=''):
 		arrancaCliente(clientes["sender"],True)
 		clientes["sender"]["cliente"].loop_start()              #start the loop
