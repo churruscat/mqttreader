@@ -246,8 +246,15 @@ if __name__ == '__main__':
 	#and, if configured, client gateway that will resend messages to remote queue
 	clientes["reader"]["cliente"].loop_start()                 #start the loop
 	if (clientes["sender"]["broker"]!=''):
-		arrancaCliente(clientes["sender"],True)
-		clientes["sender"]["cliente"].loop_start()              #start the loop
+		arrancando=True
+		while (arrancando):
+			try:
+				arrancaCliente(clientes["sender"],True)
+				clientes["sender"]["cliente"].loop_start()              #start the loop
+				arrancando=False
+			except:
+				logging.warning("could not connect to sender: "+clientes["sender"]["broker"])
+				sleep(60)
 
 	try:
 		while True:
