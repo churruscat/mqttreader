@@ -146,8 +146,7 @@ def on_message(mqttCliente, userdata, message):
 		dato='{"measurement":"'+measurement+'","time":'+str(int(secs))+str(int(usecs*1e9))+\
 				',"fields":'+json.dumps(payload[0])+',"tags":'+json.dumps(payload[1])+'}'
 		#version 1.21
-		if (len(payload[0])<4):
-			return		
+		
 	else :
 		logging.info(message.payload)
 		dato=json.loads(message.payload)
@@ -171,10 +170,9 @@ def on_message(mqttCliente, userdata, message):
 			if hasattr(exErr, 'message'):
 				logging.warning("Connection error type 1 = "+ exErr.message)
 			else:
-				logging.warning("Connection error type 2 = "+exErr)				   
+				logging.warning("Connection error type 2 = "+ exErr)				   
 			sleep(30)
 			arrancaCliente(clientes["sender"],True)
-		logging.info("sent to remote mqtt, result",result)
 	return
 
 if __name__ == '__main__':
@@ -264,4 +262,3 @@ if __name__ == '__main__':
 		clientes["reader"]["cliente"].loop_stop()                 #start the loop
 		clientes["sender"]["cliente"].loop_stop()      
 	print("Done.\nExiting.")
-
