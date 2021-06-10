@@ -12,6 +12,7 @@ import  json, math
 from datetime import datetime
 from time import time, altzone ,sleep
 import os, socket, sys, subprocess, logging
+#from configparser import ConfigParser
 import configparser
 
 configFile='/etc/mqttdbs/mqttdbs.conf'  # linux or docker
@@ -24,13 +25,15 @@ mqttbroker="mosquitto"
 tipoLogging=['none','debug', 'info', 'warning', 'error' ,'critical']
 clientes={
 	"reader":{"clientId":"c_reader","broker":"127.0.0.1","port":1883,"name":"blank",
-			  "cliente":"c_reader_mqttdbs","userid":"","password":"",
-			  "subscribe_topic":["meteo/#","cooked"],"publish_topic":"cooked", "activo":True},
+              "cliente":"c_reader_mqttdbs","userid":"","password":"",
+	          "subscribe_topic":"#","publish_topic":"cooked", "activo":True},
 	#I will use reader2 to resend messages when there are problems storing records          
-	   
+	"reader2":{"clientId":"c_reader2","broker":"127.0.0.1","port":1883,"name":"blank",
+               "cliente":"","userid":"","password":"",
+	           "subscribe_topic":"#","publish_topic":"cooked", "activo":True},	          
 	"sender":{"clientId":"c_sender","broker":"","port":1883,"name":"blank",
-			  "cliente":"","userid":"","password":"",
-			  "publish_topic":"cooked",
+              "cliente":"","userid":"","password":"",
+	          "publish_topic":"cooked",
 			  "activo":False},
 }
 
@@ -44,9 +47,8 @@ def db_insert(body):
 		logging.warning("host. %s \t port: %s \t, user:%s\t, password:%s\t, dbname:%s",dbserver, dbport, dbuser, dbpassword, dbname)
 		sleep(60)
 		return False
-	body1=json.loads(body)  # ???? dumps?  hago loads y luego dumps
+	body1=json.loads(body)
 	punto=json.loads('['+json.dumps(body1)+']')
-	#?punto=json.loads('['+body+']')
 	try:
 		for clave in body1['fields'].copy():
 			if (math.isnan(float( body1['fields'][clave]))):
@@ -110,26 +112,22 @@ def reconectate(mqttCliente):
 def arrancaCliente(senderStruct, cleanSess):
 		#global clientes
 		if (cleanSess==False):
-			senderStruct["cliente"] = mqtt.Client(senderStruct["clientId"],clean_session=cleanSess)
+		    senderStruct["cliente"] = mqtt.Client(senderStruct["clientId"],clean_session=cleanSess)
 		else:
 			senderStruct["cliente"] = mqtt.Client(clean_session=cleanSess)      
 		senderStruct["cliente"].on_message = on_message
 		senderStruct["cliente"].on_connect = on_connect
 		senderStruct["cliente"].on_publish = on_publish
-		senderStruct["cliente"].on_subscribe = on_subscribe
-
 		if (senderStruct["userid"]!=''):
 			senderStruct["cliente"].username_pw_set(senderStruct["userid"] , password=senderStruct["password"])
 		senderStruct["cliente"].connect(senderStruct["broker"],senderStruct["port"])
 		senderStruct["cliente"].reconnect_delay_set(60, 600) 
-		print(senderStruct["subscribe_topic"])
-		senderStruct["cliente"].subscribe(senderStruct["subscribe_topic"])
 		logging.info(senderStruct)
 	
 def on_message(mqttCliente, userdata, message):
 	global clientes
-	#if (message.topic.split('/')[0] == 'zigbee2mqtt'):
-	#	return	
+	if (message.topic.split('/')[0] == 'zigbee2mqtt'):
+		return
 	logging.info("Topic :"+  str(message.topic))
 	if (message.topic==clientes["sender"]["publish_topic"]):
 		crudo=False
@@ -146,13 +144,10 @@ def on_message(mqttCliente, userdata, message):
 			usecs=1e-9
 		while (usecs<0.1):
 			usecs=usecs*10
-		try:
-			payload=json.loads(message.payload.decode()) 
-		except:
-			logging.warning("Could jsonize: "+message.payload.decode())
-			return
+		payload=json.loads(message.payload.decode())
 		dato='{"measurement":"'+measurement+'","time":'+str(int(secs))+str(int(usecs*1e9))+',"fields":'+json.dumps(payload[0])+',"tags":'+json.dumps(payload[1])+'}'
-		logging.info("dato: "+dato)		
+		logging.info("dato: "+dato)
+		
 	else :
 		logging.info(message.payload)
 		dato=json.loads(message.payload)
@@ -160,16 +155,16 @@ def on_message(mqttCliente, userdata, message):
 	logging.info("salva en influxdb")
 	if(db_insert(dato)==False):   #if I can't store record, I resend it "cooked" to mqtt queue
 		logging.info("Record not stored will re-queue it")
-		try:  
-			result, mid = clientes["sender"]["cliente"].publish(clientes["sender"]["publish_topic"], json.dumps(dato), 1, True )
+		try:
+			result, mid = clientes["reader2"]["cliente"].publish(clientes["reader2"]["publish_topic"], json.dumps(dato), 1, True )
 			logging.info("sent by reader2 "+str(result))
 		except:
 			logging.warning("Connection error to reader2 = "+exErr)				   
 			sleep(60)
-			arrancaCliente(clientes["reader"],False)		
+			arrancaCliente(clientes["reader2"],True)		
 	if len(clientes["sender"]["broker"])>2:
 		logging.info("prepare to send to a remote qmtt broker")
-		try:   
+		try:
 			result, mid = clientes["sender"]["cliente"].publish(clientes["sender"]["publish_topic"], json.dumps(dato), 1, True )
 			logging.info("sent rc="+str(result))
 		except Exception as exErr:
@@ -178,20 +173,30 @@ def on_message(mqttCliente, userdata, message):
 			else:
 				logging.warning("Connection error type 2 = "+ exErr)				   
 			sleep(30)
-			arrancaCliente(clientes["sender"],False)
+			arrancaCliente(clientes["sender"],True)
 	return
 
 if __name__ == '__main__':
 	parser = configparser.ConfigParser()
 	parser.read(configFile)
-	if parser.has_section("log_level"):
-		if parser.has_option("log_level","log_level"):	
-			loglevel=parser.get("log_level","log_level")
-		else:
-			loglevel='warning'
-	else: 
-		loglevel='warning'
-	logging.basicConfig(stream=sys.stderr, format = '%(asctime)-15s  %(message)s', level=loglevel.upper())	
+	if parser.has_section("mqtt_broker_read"):
+		if parser.has_option("mqtt_broker_read","address"):
+			clientes["reader"]["broker"]=parser.get("mqtt_broker_read","address")
+			clientes["reader2"]["broker"]=parser.get("mqtt_broker_read","address")
+		if parser.has_option("mqtt_broker_read","port"):
+			clientes["reader"]["port"]=int(parser.get("mqtt_broker_read","port"))
+			clientes["reader2"]["port"]=int(parser.get("mqtt_broker_read","port"))
+		if parser.has_option("mqtt_broker_read","userid"):
+			clientes["reader"]["userid"]=parser.get("mqtt_broker_read","userid")
+			clientes["reader2"]["userid"]=parser.get("mqtt_broker_read","userid")
+		if parser.has_option("mqtt_broker_read","password"):
+			clientes["reader"]["password"]=parser.get("mqtt_broker_read","password")
+			clientes["reader2"]["password"]=parser.get("mqtt_broker_read","password")
+		if parser.has_option("mqtt_broker_read","subscribe_topic"):
+			clientes["reader"]["subscribe_topic"]=parser.get("mqtt_broker_read","subscribe_topic")
+			clientes["reader2"]["subscribe_topic"]=parser.get("mqtt_broker_read","subscribe_topic")
+
+
 	if parser.has_section("mqtt_broker_send"):
 		if parser.has_option("mqtt_broker_send","address"):
 			clientes["sender"]["broker"]=parser.get("mqtt_broker_send","address")
@@ -204,26 +209,17 @@ if __name__ == '__main__':
 		if parser.has_option("mqtt_broker_send","publish_topic"):
 			clientes["sender"]["publish_topic"]=parser.get("mqtt_broker_send","publish_topic")
 			clientes["reader"]["publish_topic"]=parser.get("mqtt_broker_send","publish_topic")  #to resend in case of failure
-	if parser.has_section("mqtt_broker_read"):
-		if parser.has_option("mqtt_broker_read","address"):
-			clientes["reader"]["broker"]=parser.get("mqtt_broker_read","address")
-		if parser.has_option("mqtt_broker_read","port"):
-			clientes["reader"]["port"]=int(parser.get("mqtt_broker_read","port"))
-		if parser.has_option("mqtt_broker_read","userid"):
-			clientes["reader"]["userid"]=parser.get("mqtt_broker_read","userid")
-		if parser.has_option("mqtt_broker_read","password"):
-			clientes["reader"]["password"]=parser.get("mqtt_broker_read","password")
-		if parser.has_option("mqtt_broker_read","subscribe_topic"):
-			#clientes["reader"]["subscribe_topic"]=parser.get("mqtt_broker_read","subscribe_topic")
-			subscribe=parser.get("mqtt_broker_read","subscribe_topic").split(",")
-			clientes["reader"]["subscribe_topic"]=[]
-			for i in range(0,len(subscribe)) :
-				topic1=(subscribe[i].strip(),1)
-				logging.info(topic1)
-				clientes["reader"]["subscribe_topic"].append(topic1)
-				logging.info("subscribe topic="+str(clientes["reader"]["subscribe_topic"]))
-			topic1=(clientes["reader"]["publish_topic"],1)
-			clientes["reader"]["subscribe_topic"].append(topic1)
+
+	if parser.has_section("log_level"):
+		if parser.has_option("log_level","log_level"):	
+			loglevel=parser.get("log_level","log_level")
+		else:
+			loglevel='warning'
+	else: 
+		loglevel='warning'
+
+
+	logging.basicConfig(stream=sys.stderr, format = '%(asctime)-15s  %(message)s', level=loglevel.upper())	
 	
 	if parser.has_section("database"):
 		if parser.has_option("database","address"):
@@ -240,10 +236,15 @@ if __name__ == '__main__':
 
 	## Define mqtt reader
 	logging.info(clientes["reader"])
-	arrancaCliente(clientes["reader"],True)
+	arrancaCliente(clientes["reader"],False)
+	clientes["reader"]["cliente"].subscribe(clientes["reader"]["subscribe_topic"],qos=1)
 	logging.info("READER")
-	logging.info(clientes["reader"]["subscribe_topic"])
 	logging.info(clientes["reader"])
+	arrancaCliente(clientes["reader2"],True)
+	clientes["reader"]["cliente"].subscribe(clientes["reader"]["subscribe_topic"],qos=1)
+	logging.info("and READER2")
+	logging.info(clientes["reader2"])
+
 	#and, if configured, client gateway that will resend messages to remote queue
 	clientes["reader"]["cliente"].loop_start()                 #start the loop
 	if (clientes["sender"]["broker"]!=''):
@@ -251,6 +252,7 @@ if __name__ == '__main__':
 		while (arrancando):
 			try:
 				arrancaCliente(clientes["sender"],True)
+				clientes["sender"]["cliente"].loop_start()              #start the loop
 				arrancando=False
 			except:
 				logging.warning("could not connect to sender: "+clientes["sender"]["broker"])
@@ -262,4 +264,5 @@ if __name__ == '__main__':
 	except (KeyboardInterrupt, SystemExit): #when you press ctrl+c
 		print("\nKilling Thread...")
 		clientes["reader"]["cliente"].loop_stop()                 #start the loop
+		clientes["sender"]["cliente"].loop_stop()      
 	print("Done.\nExiting.")
